@@ -1,0 +1,17 @@
+{
+    "rust-analyzer.lens.location": "above_name",
+    "editor.inlayHints.enabled": "offUnlessPressed",
+    "editor.inlayHints.fontSize": 11,
+    "editor.inlayHints.padding": true,
+    "workbench.colorCustomizations": {
+        // Name of the theme you are currently using
+        "[Default Dark+]": {
+            "editorInlayHint.background": "#2b2b2b99",
+            "editorInlayHint.foreground": "#ffffff6b",
+            "editorInlayHint.parameterBackground": "#2b2b2b99",
+            "editorInlayHint.parameterForeground": "#ffffff6b",
+            "editorInlayHint.typeBackground": "#2b2b2b99",
+            "editorInlayHint.typeForeground": "#ffffff6b",
+        }
+    }
+}
