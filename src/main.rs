@@ -1,45 +1,29 @@
 use std::{
     ops::Range,
-    thread::{self, available_parallelism},
+    thread,
     time::SystemTime,
-    rc::Rc,
-    cell::RefCell,
 };
 
-use seedcracker_leaves::{
-    xoro::Xoro,
-    chunk_random::ChunkRandom,
-};
+use seedcracker_leaves::{ChunkRandom, JavaRandom, Xoro};
 
 fn main() {
-    // let mut rng = JavaRandom::with_seed(0);
-    // println!("{}", rng.next_i64());
-    // println!("{}", rng.next_i64());
-    // println!("{}", rng.next_i64());
-
-    // submittable(0..268435455);
-    // process::exit(0);
-
-
-    let available_threads = available_parallelism().unwrap().get();
+    let available_threads = thread::available_parallelism().unwrap().get();
     let mut thread_pool = Vec::with_capacity(available_threads);
 
     let half_threads = available_threads as i32 / 2;
-    let part = i32::MAX / half_threads;
+    let part = ((i32::MAX as i64 + 1) / half_threads as i64) as i32;
     for i in -half_threads..half_threads {
-        let start = i * part;
-        let end = (i + 1) * part;
+        let start = i.saturating_mul(part);
+        let end = (i + 1).saturating_mul(part);
 
         println!("Kernel: {}", i + half_threads);
         println!("Seeds from {} to {}", start, end);
         println!();
 
-        thread_pool.push(
-            thread::spawn(move || { check_seeds(start..end) })
-        );
+        thread_pool.push(thread::spawn(move || check_seeds(start..end)));
     }
 
-    // wait for threads to finish
+    // Wait for threads to finish
     for t in thread_pool {
         t.join().unwrap();
     }
@@ -84,87 +68,88 @@ fn check_seeds(range: Range<i32>) {
     let most_neg_coords_of_chunk = (64, -96);
 
     // Logic start:
-    let default_list: Vec<_> = (0..trees.len()).collect();
+    let thread_that_reports_progress = range.end == i32::MAX;
 
-    let xoro_random = Rc::new(RefCell::new(Xoro::new(1)));
-    let mut random = ChunkRandom::new(Rc::clone(&xoro_random));
-    let leaf_xoro_random = Rc::new(RefCell::new(Xoro::new(1)));
-    let mut leaf_random = ChunkRandom::new(Rc::clone(&leaf_xoro_random));
+    let mut random = Xoro::new(1);
 
-    // have just one thread keep track of progress
-    let kernel_starting_at_0 = range.start == 0;
+    'seed_loop: for seed in range.clone() {
+        let seed = seed as i64;
 
-    'seed_loop: for i32_seed in range.clone() {
-        let seed = i32_seed as i64;
-
-        if seed % 10000000 == 0 && kernel_starting_at_0 {
+        if seed % 10000000 == 0 && thread_that_reports_progress {
             println!(
                 "{}% at second {}",
-                (seed * 100) as f32 / range.end as f32,
+                100.0 * (seed - range.start as i64) as f32 / (range.end - range.start) as f32,
                 SystemTime::now().duration_since(time).unwrap().as_secs()
             );
         }
 
-        // The coords of the most negative corner of our chunk
         let mut popseed = random.set_population_seed(
             seed,
             most_neg_coords_of_chunk.0,
-            most_neg_coords_of_chunk.1
+            most_neg_coords_of_chunk.1,
         );
         popseed += (9 * 10000) + 20;
         random.set_seed(popseed);
+        let seed = seed as i32;
 
-        let mut copy_tree_positions = default_list.clone();
-        // eprintln!("copyTreePositions {:?}", copy_tree_positions);
+        let mut tree_indices: Vec<_> = (0..trees.len()).collect();
 
-        let mut x = random.next_int(16);
+        let mut x = random.next_i32_bounded(16);
 
-        // let mut poo = 0;
         // Placement attempts, loose bound
         for _ in 0..100 {
-            let mut z = random.next_int(16);
+            let mut z = random.next_i32_bounded(16);
 
-            'tree_check_loop: for tree_num in &copy_tree_positions {
-                // eprintln!("tree_num: {tree_num}");
+            'tree_check_loop: for tree_num in &tree_indices {
                 let tree = trees[*tree_num];
-                if x == tree[0] && z == tree[1] {
-                    xoro_random.borrow().copy_seed_to(&mut *leaf_xoro_random.borrow_mut());
-                    leaf_xoro_random.borrow_mut().skip(2);
-                    if leaf_random.next_int(3) == tree[2] {
-                        // 1 burned call for second height & 4 for the
-                        // upper leaves that never spawn
-                        leaf_xoro_random.borrow_mut().skip(5);
-                        for leaf in 3..15 {
-                            let leaf_data = tree[leaf];
-                            if leaf_random.next_int(2) != leaf_data
-                                && leaf_data != -1
-                            {
-                                break 'tree_check_loop;
-                            }
-                        }
-                        leaf_xoro_random.borrow().copy_seed_to(&mut *xoro_random.borrow_mut());
-                        z = random.next_int(16);
-                        // eprintln!("before remove: copyTreePositions {:?}", copy_tree_positions);
-                        copy_tree_positions.remove(copy_tree_positions.iter().position(|x| *x == *tree_num).unwrap());
-                        // eprintln!("after remove: copyTreePositions {:?}", copy_tree_positions);
-                        if copy_tree_positions.len() < 2 {
-                            println!("----------------");
-                            println!("Seed: {}", i32_seed);
-                            println!("----------------");
-                            continue 'seed_loop;
-                        }
-                        break;
+
+                // 1) Check randomly chosen (x, z) position is a tree position
+                // 2) Ensure random tree trunk height matches
+                // 3) Ensure the random corner leaves match
+
+                if x != tree[0] || z != tree[1] {
+                    continue;
+                }
+
+                let mut peek_random = random.clone();
+                peek_random.skip(2);
+
+                // `next_i32(3)` corresponds to the 0-2 extra logs for oak
+                if peek_random.next_i32_bounded(3) != tree[2] {
+                    continue;
+                }
+
+                // Skip 1 call for second additive trunk height,
+                // and skip 4 calls for the upper leaves that never spawn
+                peek_random.skip(5);
+
+                for leaf_data in &tree[3..15] {
+                    if peek_random.next_i32_bounded(2) != *leaf_data && *leaf_data != -1 {
+                        break 'tree_check_loop;
                     }
                 }
-                // if matches!(poo, 0..=1 | 90..=94 | 138|139) {
-                //     eprintln!("{:?}", xoro_random.borrow().seed_range);
-                //     eprintln!("{:?}", leaf_xoro_random.borrow().seed_range);
-                // }
-                // eprintln!("counter: {poo}");
-                // poo += 1;
+
+                // All checks pass for this tree!
+                // 1) transfer state from `peek_random` to `random`
+                // 2) ???
+                // 3) Remove this tree from the check
+
+                random = peek_random;
+
+                z = random.next_i32_bounded(16);
+
+                tree_indices.remove(tree_indices.iter().position(|x| *x == *tree_num).unwrap());
+
+                // If all trees in the list match, then this is a potential seed!
+                if tree_indices.len() <= 1 {
+                    println!("----------------");
+                    println!("Seed: {}", seed);
+                    println!("----------------");
+                    continue 'seed_loop;
+                }
+                break;
             }
             x = z;
         }
     }
 }
-
