@@ -9,6 +9,8 @@ pub trait JavaRandom {
     /// # Panics
     /// Will panic if `bound == 0`
     fn next_i32_bounded(&mut self, bound: u32) -> i32 {
+        // Implementation taken from
+        // https://github.com/Xydez/javarandom-rs/blob/master/src/java_random.rs#L70
         let bound = bound as i32;
         assert!(bound > 0);
 
@@ -31,6 +33,8 @@ pub trait JavaRandom {
     }
 
     fn next_i64(&mut self) -> i64 {
+        // Taken from
+        // https://github.com/Xydez/javarandom-rs/blob/master/src/java_random.rs#L100
         ((self.next(32) as i64) << 32) + self.next(32) as i64
     }
 
