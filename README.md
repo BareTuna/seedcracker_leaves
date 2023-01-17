@@ -28,8 +28,8 @@ since the footage felt rushed and last-minute)
 
 I ran it against the Java code, and the Rust re-write is
 about 2.5-ish times faster than the Java equivalent, when using
-the same amount of threads. On my hardware it went from 22
-minutes down to just under 8. Nice!
+the same amount of threads. On my hardware, that means it went
+from 22m 28s down to 8m 54s. Nice!
 
 ## Running
 
